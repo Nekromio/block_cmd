@@ -26,8 +26,8 @@ public Plugin myinfo =
 {
 	name = "Block CMD",
 	author = "Nek.'a 2x2 | ggwp.site ",
-	description = "Проверка команд игрока",
-	version = "1.0.5",
+	description = "блокировка игры при не приемлемых значений команд",
+	version = "1.0.6",
 	url = "https://ggwp.site/"
 };
 
@@ -167,6 +167,9 @@ void CmdList(int client)
 
 void OnConVarQueryFinished(QueryCookie cookie, int client, ConVarQueryResult result, const char[] cvarName, const char[] cvarValue, any serial)
 {
+	if(!IsClientValid(client))
+		return;
+		
 	if(result == ConVarQuery_NotFound)
 		LogError("Игрок [%N] | такой команды [%s] не существует", client, cvarName);
 	
@@ -201,16 +204,18 @@ void OnConVarQueryFinished(QueryCookie cookie, int client, ConVarQueryResult res
 				if(bBlockGame[client] == true)
 				{
 					iHook[client]++;
-					
 				}
 				iHook2[client] = 1;
 				if(bBlockGame[client])
 				{
 					ChangeClientTeam(client, 1);
-					DisplayString(client, sConVars[0], StringToInt(cvarValue), StringToInt(sConVars[1]), StringToInt(sConVars[2]));
+					DisplayPanel(client, sConVars[0], StringToInt(cvarValue), StringToInt(sConVars[1]), StringToInt(sConVars[2]), 0);
+					return;
 				}
 			}
+			else KickClient(client, "У вас не допустимое значение [%s %s], разрешенные пределы [%s]/[%s]", sConVars[0], cvarValue, sConVars[1], sConVars[2]);
 		}
+
 		case 1:
 		{
 			if(StringToFloat(sConVars[1]) > StringToFloat(cvarValue) || StringToFloat(cvarValue) > StringToFloat(sConVars[2]))
@@ -223,16 +228,16 @@ void OnConVarQueryFinished(QueryCookie cookie, int client, ConVarQueryResult res
 					if(bBlockGame[client] == true)
 					{
 						iHook[client]++;
-						
 					}
 					iHook2[client] = 1;
 					if(bBlockGame[client])
 					{
 						ChangeClientTeam(client, 1);
-						DisplayPanelFloat(client, sConVars[0], StringToFloat(cvarValue), StringToFloat(sConVars[1]), StringToFloat(sConVars[2]));
-						
+						DisplayPanel(client, sConVars[0], StringToFloat(cvarValue), StringToFloat(sConVars[1]), StringToFloat(sConVars[2]), 1);
+						return;
 					}
 				}
+				else KickClient(client, "У вас не допустимое значение [%s %s], разрешенные пределы [%s]/[%s]", sConVars[0], cvarValue, sConVars[1], sConVars[2]);
 			}
 		}
 		
@@ -249,16 +254,16 @@ void OnConVarQueryFinished(QueryCookie cookie, int client, ConVarQueryResult res
 					if(bBlockGame[client] == true)
 					{
 						iHook[client]++;
-						
 					}
 					iHook2[client] = 1;
 					if(bBlockGame[client])
 					{
 						ChangeClientTeam(client, 1);
-						DisplayPanel(client, sConVars[0], StringToInt(cvarValue), StringToInt(sConVars[1]), StringToInt(sConVars[2]));
-						
+						DisplayPanel(client, sConVars[0], StringToInt(cvarValue), StringToInt(sConVars[1]), StringToInt(sConVars[2]), 2);
+						return;
 					}
 				}
+				else KickClient(client, "У вас не допустимое значение [%s %s], разрешенные пределы [%s]/[%s]", sConVars[0], cvarValue, sConVars[1], sConVars[2]);
 			}
 		}
 	}
@@ -275,27 +280,23 @@ void OnConVarQueryFinished(QueryCookie cookie, int client, ConVarQueryResult res
 	}
 }
 
-void DisplayPanel(int client, char[] sVars, int iValue, int iCvarMin, int iCvarMax)
+void DisplayPanel(int client, char[] sVars, any Value, any CvarMin, any CvarMax, int index)
 {
 	char sText[512];
 
-	Format(sText, sizeof(sText), "У вас [%N] запрещенное значение команды %s %d\nПеределай [%d]/[%d] И через пару секунд играй!", client, sVars, iValue, iCvarMin, iCvarMax);
-	ShowMOTDPanel(client, "Меню с подсказкой", sText, MOTDPANEL_TYPE_TEXT);
-}
-
-void DisplayPanelFloat(int client, char[] sVars, float fValue, float fCvarMin, float fCvarMax)
-{
-	char sText[512];
-
-	Format(sText, sizeof(sText), "У вас [%N] запрещенное значение команды %s %.3f\nПеределай [%.3f]/[%.3f] И через пару секунд играй!", client, sVars, fValue, fCvarMin, fCvarMax);
-	ShowMOTDPanel(client, "Меню с подсказкой", sText, MOTDPANEL_TYPE_TEXT);
-}
-
-void DisplayString(int client, char[] sVars, int iValue, int iCvarMin, int iCvarMax)
-{
-	char sText[512];
-
-	Format(sText, sizeof(sText), "У вас [%N] запрещенное значение команды %s является текстом ! Что не допустимо для этой команды\nПеределай [%d]/[%d] И через пару секунд играй!", client, sVars, iValue, iCvarMin, iCvarMax);
+	switch(index)
+	{
+		//string
+		//case 0:	Format(sText, sizeof(sText), "У вас [%N] запрещенное значение команды %s является текстом ! Не допустимо \nИзмени [%d]/[%d] И через секунду играй!",
+		case 0:	Format(sText, sizeof(sText), "У вас [%N] запрещенное значение команды %s ! \nИзмени на [%d]/[%d] ",
+		 client, sVars, CvarMin, CvarMax);
+		//float
+		case 1: Format(sText, sizeof(sText), "У вас [%N] запрещенное значение команды %s %.3f\nИзмени [%.3f]/[%.3f] И через секунду играй!",
+		 client, sVars, Value, CvarMin, CvarMax);
+		//int
+		case 2: Format(sText, sizeof(sText), "У вас [%N] запрещенное значение команды %s %d\nИзмени [%d]/[%d] И через секунду играй!",
+		 client, sVars, Value, CvarMin, CvarMax);
+	}
 	ShowMOTDPanel(client, "Меню с подсказкой", sText, MOTDPANEL_TYPE_TEXT);
 }
 
@@ -333,4 +334,9 @@ int GetTypeString(const char[] string)
 	}
 	while (string[++i]) if (string[i] < 48 || 57 < string[i]) return string[i] == 46 && 47 < string[++i] && string[i] < 58 ? 1 : 0;
 	return 2;
+}
+
+bool IsClientValid(int client)
+{
+	return 0 < client <= MaxClients && IsClientInGame(client);
 }
