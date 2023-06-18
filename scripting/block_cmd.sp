@@ -1,14 +1,12 @@
 #pragma semicolon 1
 #pragma newdecls required
 
-KeyValues
-	hKeyValues;
-
 ArrayList
 	hArray[3];
 
 ConVar
-	cvNoSpec;
+	cvNoSpec,
+	cvTimer;
 
 bool
 	bBlockGame[MAXPLAYERS+1];
@@ -18,22 +16,21 @@ int
 	iHook2[MAXPLAYERS+1];
 
 char
-	sFile[PLATFORM_MAX_PATH],
-	sIp[MAXPLAYERS+1][16],
-	sSteamid[32];
+	sFile[PLATFORM_MAX_PATH];
 
 public Plugin myinfo = 
 {
 	name = "Block CMD",
 	author = "Nek.'a 2x2 | ggwp.site ",
 	description = "блокировка игры при не приемлемых значений команд",
-	version = "1.0.6",
+	version = "1.0.7",
 	url = "https://ggwp.site/"
 };
 
 public void OnPluginStart()
 {
 	cvNoSpec = CreateConVar("sm_bloccmd_nospec", "1", "Перекидывать ли в спеки игроков с запрещенной командой?", _, true, 0.0);
+	cvTimer = CreateConVar("sm_bloccmd_timer", "5.0", "С какой переодичностью будет идти проверка игроков? (в секундах)");
 	
 	hArray[0] = new ArrayList(ByteCountToCells(64));
 	hArray[1] = new ArrayList(ByteCountToCells(64));
@@ -42,7 +39,7 @@ public void OnPluginStart()
 	char sPath[PLATFORM_MAX_PATH]; Handle hFile;
 	BuildPath(Path_SM, sPath, sizeof(sPath), "configs/block_cmd.ini");
 	
-	hKeyValues = new KeyValues("ListCmd");		//Создает новую структуру KeyValues.
+	KeyValues hKeyValues = new KeyValues("ListCmd");
 	if(!hKeyValues.ImportFromFile(sPath))
 		PrintToChatAll("Файл не был загружен [%s]", sPath);
 		
@@ -54,7 +51,7 @@ public void OnPluginStart()
 	
 	AddCommandListener(Command_JoinTeam, "jointeam");
 	
-	CheckSettings();
+	CheckSettings(hKeyValues);
 	
 	BuildPath(Path_SM, sFile, sizeof(sFile), "logs/block_cmd.log");
 	
@@ -65,7 +62,7 @@ public void OnPluginStart()
 
 public void OnMapStart()
 {
-	CreateTimer(10.0, CheckClient, _, TIMER_REPEAT|TIMER_FLAG_NO_MAPCHANGE);
+	CreateTimer(cvTimer.FloatValue, Timer_CheckClient, _, TIMER_REPEAT|TIMER_FLAG_NO_MAPCHANGE);
 }
 
 public void OnClientPutInServer(int client)
@@ -78,36 +75,36 @@ public void OnClientDisconnect(int client)
 	bBlockGame[client] = false;
 }
 
-void CheckSettings()
+void CheckSettings(KeyValues hKeyValues)
 {
 	hKeyValues.Rewind();
 	hKeyValues.JumpToKey("BlockCmd", false);
 
 	char sKey[32], sValue[16], sKeyMin[32];
 	
-	if(hKeyValues.GotoFirstSubKey(false))		//Устанавливает текущую позицию в дереве KeyValues ​​для первого подключа
+	if(hKeyValues.GotoFirstSubKey(false))
 	{
 		do
-		{	//Прыгаем на первый раздел BlockCmd
-			if(hKeyValues.GetSectionName(sKey, sizeof(sKey)))		//Получает имя текущего раздела.
+		{
+			if(hKeyValues.GetSectionName(sKey, sizeof(sKey)))
 			{
-				if(hKeyValues.GotoFirstSubKey(false))		//Устанавливает текущую позицию в дереве KeyValues ​​для первого подключа
+				if(hKeyValues.GotoFirstSubKey(false))
 				{
 					int iCmdChat;
 					do 
 					{
-						if(hKeyValues.GetSectionName(sKeyMin, sizeof(sKeyMin)))		//Получает имя текущего раздела.
+						if(hKeyValues.GetSectionName(sKeyMin, sizeof(sKeyMin)))
 						{
-							hKeyValues.GetString(NULL_STRING, sValue, sizeof(sValue));		//	Извлекает строковое значение из ключа KeyValues
+							hKeyValues.GetString(NULL_STRING, sValue, sizeof(sValue));
 
 							if(!iCmdChat)
 							{
-								hArray[0].PushString(sKey);	// Добавим в конце массива элемент со значением sCmd
-								hArray[1].PushString(sValue);	// Добавим в конце массива элемент со значением sValue минимального значения
+								hArray[0].PushString(sKey);
+								hArray[1].PushString(sValue);
 							}
 							else
 							{
-								hArray[2].PushString(sValue);	// Добавим в конце массива элемент со значением sValue максимального значения
+								hArray[2].PushString(sValue);
 							}
 							iCmdChat++;
 						}
@@ -122,7 +119,7 @@ void CheckSettings()
 	CloseHandle(hKeyValues);
 }
 
-Action CheckClient(Handle hTimer)
+Action Timer_CheckClient(Handle hTimer)
 {
 	for(int i = 1; i <= MaxClients; i++) if(IsClientInGame(i) && !IsFakeClient(i))
 		iHook[i] = 0;
@@ -141,7 +138,7 @@ void CheckClientAll()
 {
 	char sConVar[32];
 
-	for(int i = 1; i <=MaxClients; i++) if(IsClientInGame(i) && !IsFakeClient(i))	//Проверяем всех игроков на сервере
+	for(int i = 1; i <=MaxClients; i++) if(IsClientInGame(i) && !IsFakeClient(i))
 	{
 		for(int d; d < GetArraySize(hArray[0]); d++)
 		{
@@ -153,15 +150,14 @@ void CheckClientAll()
 
 void CmdList(int client)
 {
-	char sConVar[32];
+	if(IsFakeClient(client))
+		return;
 
-	if(!IsFakeClient(client))	//Проверяем всех игроков на сервере
+	char sConVar[32];
+	for(int i; i < GetArraySize(hArray[0]); i++)
 	{
-		for(int i; i < GetArraySize(hArray[0]); i++)
-		{
-			GetArrayString(hArray[0], i, sConVar, sizeof(sConVar));
-			QueryClientConVar(client, sConVar, OnConVarQueryFinished, i) == QUERYCOOKIE_FAILED;
-		}
+		GetArrayString(hArray[0], i, sConVar, sizeof(sConVar));
+		QueryClientConVar(client, sConVar, OnConVarQueryFinished, i) == QUERYCOOKIE_FAILED;
 	}
 }
 
@@ -180,64 +176,24 @@ void OnConVarQueryFinished(QueryCookie cookie, int client, ConVarQueryResult res
 		LogError("Игрок [%N] | convar [%s] был найден, но он защищен. Сервер не может получить его значение", client, cvarName);
 	
 	char sConVars[3][64];
+	GetArrayString(hArray[0], serial, sConVars[0], sizeof(sConVars[]));		//проверяемая команда
+	GetArrayString(hArray[1], serial, sConVars[1], sizeof(sConVars[]));		//минимальное значение команды
+	GetArrayString(hArray[2], serial, sConVars[2], sizeof(sConVars[]));		//максимальное значение команды
 
-	GetArrayString(hArray[0], serial, sConVars[0], sizeof(sConVars[]));		//Достаём из списка проверяемые команды по одной
-	GetArrayString(hArray[1], serial, sConVars[1], sizeof(sConVars[]));		//Достаём из списка минимальное значение команды
-	GetArrayString(hArray[2], serial, sConVars[2], sizeof(sConVars[]));		//Достаём из списка максимальное значение команды
-
-	//PrintToChatAll("Проверка команды [%s] у клиента [%s] со значением [%s]", sConVars[0], cvarName, cvarValue);
-	GetClientAuthId(client, AuthId_Steam2, sSteamid, sizeof(sSteamid));
-	GetClientIP(client, sIp[client], sizeof(sIp[]));
-	
-	// Проверки значений команд из БлокЛист
 	switch(GetTypeString(cvarValue))
 	{
-		//case 0:
-		//	LogError("Команда %s использует в качестве значения текст [%s]", cvarName, cvarValue);
 		case 0:
 		{
-			LogToFile(sFile, "Игрок [%N]/[%s]/[%s] использует запрещённое значение команды %s %s, он попытался сжульничать и использовать текст !", client, sIp[client], sSteamid, sConVars[0], cvarValue);
-			if(cvNoSpec.BoolValue)
-			{
-				//KickClient(client, "У вас не допустимое значение [%s %s], разрешенные пределы [%s]/[%s]", sConVars[0], cvarValue, sConVars[1], sConVars[2]);
-				bBlockGame[client] = true;
-				if(bBlockGame[client] == true)
-				{
-					iHook[client]++;
-				}
-				iHook2[client] = 1;
-				if(bBlockGame[client])
-				{
-					ChangeClientTeam(client, 1);
-					DisplayPanel(client, sConVars[0], StringToInt(cvarValue), StringToInt(sConVars[1]), StringToInt(sConVars[2]), 0);
-					return;
-				}
-			}
-			else KickClient(client, "У вас не допустимое значение [%s %s], разрешенные пределы [%s]/[%s]", sConVars[0], cvarValue, sConVars[1], sConVars[2]);
+			CheckCvars(client, sConVars[0], sConVars[1], sConVars[2], _, 0);
+			return;
 		}
 
 		case 1:
 		{
 			if(StringToFloat(sConVars[1]) > StringToFloat(cvarValue) || StringToFloat(cvarValue) > StringToFloat(sConVars[2]))
 			{
-				LogToFile(sFile, "Игрок [%N]/[%s]/[%s] использует запрещённое значение команды %s %s, разрешенные пределы [%s]/[%s]", client, sIp[client], sSteamid, sConVars[0], cvarValue, sConVars[1], sConVars[2]);
-				if(cvNoSpec.BoolValue)
-				{
-					//KickClient(client, "У вас не допустимое значение [%s %s], разрешенные пределы [%s]/[%s]", sConVars[0], cvarValue, sConVars[1], sConVars[2]);
-					bBlockGame[client] = true;
-					if(bBlockGame[client] == true)
-					{
-						iHook[client]++;
-					}
-					iHook2[client] = 1;
-					if(bBlockGame[client])
-					{
-						ChangeClientTeam(client, 1);
-						DisplayPanel(client, sConVars[0], StringToFloat(cvarValue), StringToFloat(sConVars[1]), StringToFloat(sConVars[2]), 1);
-						return;
-					}
-				}
-				else KickClient(client, "У вас не допустимое значение [%s %s], разрешенные пределы [%s]/[%s]", sConVars[0], cvarValue, sConVars[1], sConVars[2]);
+				CheckCvars(client, sConVars[0], sConVars[1], sConVars[2], cvarValue, 1);
+				return;
 			}
 		}
 		
@@ -245,25 +201,8 @@ void OnConVarQueryFinished(QueryCookie cookie, int client, ConVarQueryResult res
 		{
 			if(StringToInt(sConVars[1]) > StringToInt(cvarValue) || StringToInt(cvarValue) > StringToInt(sConVars[2]))
 			{
-				//PrintToChatAll("У игрока [%N] значение [%d], разрешенное минимальное [%d]", client, StringToInt(sConVars[1]), StringToInt(cvarValue));
-				LogToFile(sFile, "Игрок [%N]/[%s]/[%s] использует запрещённое значение команды %s %s, разрешенные пределы [%s]/[%s]", client, sIp[client], sSteamid, sConVars[0], cvarValue, sConVars[1], sConVars[2]);
-				if(cvNoSpec.BoolValue)
-				{
-					//KickClient(client, "У вас не допустимое значение [%s %s], разрешенные пределы [%s]/[%s]", sConVars[0], cvarValue, sConVars[1], sConVars[2]);
-					bBlockGame[client] = true;
-					if(bBlockGame[client] == true)
-					{
-						iHook[client]++;
-					}
-					iHook2[client] = 1;
-					if(bBlockGame[client])
-					{
-						ChangeClientTeam(client, 1);
-						DisplayPanel(client, sConVars[0], StringToInt(cvarValue), StringToInt(sConVars[1]), StringToInt(sConVars[2]), 2);
-						return;
-					}
-				}
-				else KickClient(client, "У вас не допустимое значение [%s %s], разрешенные пределы [%s]/[%s]", sConVars[0], cvarValue, sConVars[1], sConVars[2]);
+				CheckCvars(client, sConVars[0], sConVars[1], sConVars[2], cvarValue, 2);
+				return;
 			}
 		}
 	}
@@ -280,22 +219,59 @@ void OnConVarQueryFinished(QueryCookie cookie, int client, ConVarQueryResult res
 	}
 }
 
-void DisplayPanel(int client, char[] sVars, any Value, any CvarMin, any CvarMax, int index)
+void CheckCvars(int client, char[] CvarName, char[] cvarValueMin, char[] cvarValueMax, const char[] cvarValueClient = "", int index)
+{
+	char sIp[16], sSteamid[32];
+	GetClientAuthId(client, AuthId_Steam2, sSteamid, sizeof(sSteamid));
+	GetClientIP(client, sIp, sizeof(sIp));
+
+	if(!index)
+	{
+		LogToFile(sFile, "Игрок [%N]/[%s]/[%s] использует запрещённое значение команды %s, он попытался сжульничать и использовать текст !",
+		 client, sIp, sSteamid, CvarName);
+	}
+	else
+	{
+		LogToFile(sFile, "Игрок [%N]/[%s]/[%s] использует запрещённое значение команды %s %s, разрешенные пределы [%s]/[%s]",
+				client, sIp, sSteamid, CvarName, cvarValueClient, cvarValueMin, cvarValueMax);
+	}
+
+	if(!cvNoSpec.BoolValue)
+	{
+		KickClient(client, "У вас не допустимое значение [%s %s], разрешенные пределы [%s]/[%s]", CvarName, cvarValueClient, cvarValueMin, cvarValueMax);
+		return;
+	}
+	
+	ArrayFunc(client);
+	if(bBlockGame[client])
+	{
+		ChangeClientTeam(client, 1);
+		DisplayPanel(client, CvarName, cvarValueClient, cvarValueMin, cvarValueMax, index);
+	}
+}
+
+void ArrayFunc(int client)
+{
+	bBlockGame[client] = true;
+	if(bBlockGame[client] == true)
+	{
+		iHook[client]++;
+	}
+	iHook2[client] = 1;
+}
+
+void DisplayPanel(int client, char[] sVars, const char[] Value, char[] CvarMin, char[] CvarMax, int index)
 {
 	char sText[512];
 
 	switch(index)
 	{
-		//string
-		//case 0:	Format(sText, sizeof(sText), "У вас [%N] запрещенное значение команды %s является текстом ! Не допустимо \nИзмени [%d]/[%d] И через секунду играй!",
 		case 0:	Format(sText, sizeof(sText), "У вас [%N] запрещенное значение команды %s ! \nИзмени на [%d]/[%d] ",
-		 client, sVars, CvarMin, CvarMax);
-		//float
+		 client, sVars, StringToInt(CvarMin), StringToInt(CvarMax));
 		case 1: Format(sText, sizeof(sText), "У вас [%N] запрещенное значение команды %s %.3f\nИзмени [%.3f]/[%.3f] И через секунду играй!",
-		 client, sVars, Value, CvarMin, CvarMax);
-		//int
+		 client, sVars, StringToFloat(Value), StringToFloat(CvarMin), StringToFloat(CvarMax));
 		case 2: Format(sText, sizeof(sText), "У вас [%N] запрещенное значение команды %s %d\nИзмени [%d]/[%d] И через секунду играй!",
-		 client, sVars, Value, CvarMin, CvarMax);
+		 client, sVars, StringToInt(Value), StringToInt(CvarMin), StringToInt(CvarMax));
 	}
 	ShowMOTDPanel(client, "Меню с подсказкой", sText, MOTDPANEL_TYPE_TEXT);
 }
@@ -304,7 +280,6 @@ Action Command_JoinTeam(int client, char[] sCommand, int args)
 {
 	char sArg[8];
 	GetCmdArg(1, sArg, sizeof(sArg));
-	//int iNewTeam = StringToInt(sArg);
 	int iOldTeam = GetClientTeam(client);
 
 	if(bBlockGame[client] && (iOldTeam == 0 || iOldTeam == 1))
@@ -315,13 +290,6 @@ Action Command_JoinTeam(int client, char[] sCommand, int args)
 	
 	return Plugin_Changed;
 }
-
-/**
- * types:
- * 0 - string
- * 1 - float
- * 2 - int
- */
 
 int GetTypeString(const char[] string)
 {
